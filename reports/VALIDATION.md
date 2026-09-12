@@ -2,6 +2,17 @@
 
 Validation date: 2026-09-12. Environment: Windows, Python 3.12.8.
 
+## Baseline commit verification
+
+Rechecked on 2026-09-12 in a separate Git worktree before committing the existing implementation:
+
+- `python -m pytest -q`: **129 passed** in 13.16 seconds.
+- `python -m ruff check src tests scripts benchmarks --exclude src/fraud_pipeline/generated`: passed.
+- `python -m pip check`: no broken requirements found in the existing development environment.
+- `python -m fraud_pipeline demo`: processed 1,000 synthetic transactions and emitted 12 features using the explicitly untrained heuristic.
+
+These commands used the existing development virtualenv with imports directed to the worktree's `src` directory. This was not a fresh dependency installation. Docker integration, training, crash trials, and performance benchmarks were not rerun for this commit; their previously recorded results appear below.
+
 ## Checked locally
 
 - Feature windows and missing-value behavior against hand-worked cases and an independent brute-force oracle.
