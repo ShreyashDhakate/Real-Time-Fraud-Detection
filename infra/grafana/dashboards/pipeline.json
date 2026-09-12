@@ -1,0 +1,10 @@
+{
+  "title": "Fraud Pipeline", "uid": "fraud", "schemaVersion": 40,
+  "time": {"from": "now-15m", "to": "now"}, "refresh": "5s",
+  "panels": [
+    {"id": 1, "title": "Committed events / second", "type": "timeseries", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8}, "datasource": {"uid": "prometheus", "type": "prometheus"}, "targets": [{"expr": "sum by (status) (rate(fraud_events_total[1m]))", "legendFormat": "{{status}}"}]},
+    {"id": 2, "title": "Server RPC p99 (seconds)", "type": "timeseries", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8}, "datasource": {"uid": "prometheus", "type": "prometheus"}, "targets": [{"expr": "histogram_quantile(0.99, sum by (le) (rate(fraud_grpc_seconds_bucket[1m])))"}]},
+    {"id": 3, "title": "Entities in worker state", "type": "timeseries", "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8}, "datasource": {"uid": "prometheus", "type": "prometheus"}, "targets": [{"expr": "fraud_state_entities", "legendFormat": "{{instance}}"}]},
+    {"id": 4, "title": "RPC outcomes / second", "type": "timeseries", "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8}, "datasource": {"uid": "prometheus", "type": "prometheus"}, "targets": [{"expr": "sum by (code) (rate(fraud_grpc_requests_total[1m]))", "legendFormat": "{{code}}"}]}
+  ]
+}

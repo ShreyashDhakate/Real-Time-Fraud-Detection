@@ -1,0 +1,94 @@
+{
+    "metrics": {
+        "data_received": {
+            "count": 450376,
+            "rate": 15011.17486554041
+        },
+        "checks": {
+            "passes": 6002,
+            "fails": 0,
+            "value": 1
+        },
+        "vus_max": {
+            "value": 200,
+            "min": 200,
+            "max": 200
+        },
+        "grpc_req_duration": {
+            "max": 38.070192,
+            "p(90)": 3.140694,
+            "p(95)": 3.472564,
+            "avg": 2.5675380676441195,
+            "min": 1.751755,
+            "med": 2.371431,
+            "thresholds": {
+                "p(99)<100": false
+            }
+        },
+        "dropped_iterations": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "data_sent": {
+            "count": 400556,
+            "rate": 13350.65847079197
+        },
+        "iterations": {
+            "count": 3001,
+            "rate": 100.0242814259347
+        },
+        "successful_scores": {
+            "count": 3001,
+            "rate": 100.0242814259347,
+            "thresholds": {
+                "rate>=99.9": false
+            }
+        },
+        "scoring_errors": {
+            "passes": 0,
+            "fails": 3001,
+            "thresholds": {
+                "rate<0.001": false
+            },
+            "value": 0
+        },
+        "iteration_duration": {
+            "min": 2.033003,
+            "med": 2.741251,
+            "max": 42.504092,
+            "p(90)": 3.954283,
+            "p(95)": 4.807932,
+            "avg": 3.1878109150283342
+        },
+        "vus": {
+            "min": 0,
+            "max": 2,
+            "value": 1
+        }
+    },
+    "root_group": {
+        "groups": {},
+        "checks": {
+                "status OK": {
+                    "name": "status OK",
+                    "path": "::status OK",
+                    "id": "8f59c0efd244e6b5c27a2bbb17f839cf",
+                    "passes": 3001,
+                    "fails": 0
+                },
+                "trained model when required": {
+                    "id": "a34743330fb46137a177d1a494dd23d5",
+                    "passes": 3001,
+                    "fails": 0,
+                    "name": "trained model when required",
+                    "path": "::trained model when required"
+                }
+            },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+}

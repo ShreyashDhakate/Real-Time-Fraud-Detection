@@ -1,0 +1,19 @@
+syntax = "proto3";
+package fraud.v1;
+
+service FraudScorer {
+  rpc Score(ScoreRequest) returns (ScoreResponse);
+}
+
+message ScoreRequest {
+  string entity_id = 1;
+  string transaction_id = 2;
+}
+
+message ScoreResponse {
+  double risk_score = 1;
+  string model_version = 2;
+  string feature_version = 3;
+  double feature_age_seconds = 4;
+  bool demo_model = 5;
+}
