@@ -148,6 +148,7 @@ I documented the remaining setup and operational decisions here:
 - [Benchmark guide](docs/BENCHMARKS.md): commands and evidence needed for each target.
 - [Operations runbook](docs/RUNBOOK.md): backfill, recovery, model rollout, deployment, and teardown.
 - [Local validation](reports/VALIDATION.md): what has actually been checked in this workspace.
+- [Reproduce the checks](docs/REPRODUCIBILITY.md): interpreter selection, read-only protobuf verification, and separate external validation gates.
 - [IEEE-CIS baseline](reports/IEEE_BASELINE.md): my first real-data training result and its limitations.
 
 ## License
