@@ -1,0 +1,10 @@
+.git
+.venv
+.env
+data
+artifacts
+reports
+__pycache__
+.pytest_cache
+.codex
+PLAN.md

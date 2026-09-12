@@ -1,0 +1,31 @@
+name: checks
+on: [push, pull_request]
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -c constraints.txt -e '.[dev]'
+      - run: python scripts/generate_proto.py
+      - run: git diff --exit-code -- src/fraud_pipeline/generated
+      - run: ruff check src tests scripts benchmarks --exclude src/fraud_pipeline/generated
+      - run: pytest -q
+      - run: fraud demo
+      - run: docker compose config --quiet
+      - run: docker compose build
+      - run: docker compose up -d --wait
+      - run: python scripts/smoke.py
+      - run: python -m scripts.crash_trials --trials 2
+      - if: failure()
+        run: docker compose logs --tail 200
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-reports
+          path: reports/
+      - if: always()
+        run: docker compose down
