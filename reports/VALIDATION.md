@@ -2,6 +2,16 @@
 
 Validation date: 2026-09-12. Environment: Windows, Python 3.12.8.
 
+## Event-time checks, 2026-09-13
+
+Fresh local verification passed **196 tests** in 7.01 seconds, Ruff, the
+non-mutating protobuf check, and `pip check`. Added 15 independent boundary cases,
+42 partition/checkpoint parity cases, and one batch ordering case. The existing
+runtime passed; no runtime defect or correction is claimed. See
+[event-time evidence](EVENT_TIME.md) for the trace, commands, and limits.
+These checks used the existing development environment with worktree imports;
+Kafka recovery and external-service integration were not rerun.
+
 ## Baseline commit verification
 
 Rechecked on 2026-09-12 in a separate Git worktree before committing the existing implementation:

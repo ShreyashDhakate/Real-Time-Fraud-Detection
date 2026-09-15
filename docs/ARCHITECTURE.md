@@ -8,15 +8,31 @@ Kafka keys must equal the UTF-8 entity ID. All producers must use the same parti
 
 IDs are unique within an entity, with a 24-hour event-time deduplication horizon. Reusing an ID with a different payload inside that horizon is treated as a duplicate input; producers are responsible for immutable IDs. Redis detects a conflicting immutable snapshot if one is produced later. Replays outside the retention horizon require a separate namespace.
 
+The deduplication cutoff is inclusive: an ID accepted at `t` is still a duplicate
+at `t + 86400`. A rejected duplicate does not refresh its retention timestamp or
+advance the watermark. Beyond that horizon the feature engine can accept the ID
+again; this is not permission to reuse an immutable Redis snapshot key in the
+same namespace.
+
 ## Event-time policy
 
 The worker accepts nondecreasing timestamps within an entity, including equal timestamps. It rejects events older than that entity's last accepted timestamp, and events more than one hour behind its partition's maximum accepted timestamp. There is no out-of-order buffer or correction stream in this version.
+
+Exactly one hour behind the partition watermark is allowed if the entity's own
+ordering permits it. Classification checks partition lateness first, then
+duplicate ID, then entity lateness. Thus a known ID behind its entity timestamp
+can be classified as duplicate, but an input beyond the partition lateness limit
+is classified as late even if its ID is known. Neither rejection mutates feature
+state, deduplication state, the expiry index, or the watermark.
 
 Windows are `[timestamp-window, timestamp)`. Equal-time events are retained but excluded from one another's features. For subsequent events, the last preceding event in input order is the previous transaction. Previous-event and geographic features are missing when no earlier event exists in the one-hour retained history; they do not search arbitrarily far into the past.
 
 Batch inputs must be globally sorted by timestamp. This guarantees that the batch's single engine and the live engines agree despite their different partition layouts. Production producers must enforce per-entity ordering; arbitrary out-of-order replay is not parity-equivalent.
 
 Inactive entity state expires when the partition event-time watermark advances more than 24 hours beyond its last event. With no new input, state does not expire by wall clock. There is no absolute count limit on histories or deduplication entries inside the horizon; high event rates and cardinality can still exhaust memory.
+
+See [event-time validation](../reports/EVENT_TIME.md) for independently checked
+cutoffs, the partitioned parity trace, and checkpoint simulation limits.
 
 ## Kafka recovery
 

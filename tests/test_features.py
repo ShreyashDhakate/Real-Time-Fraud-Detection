@@ -112,6 +112,71 @@ def test_expiry_and_global_lateness():
     assert engine.process(event("3", 100, entity="c"))[0] == "late"
 
 
+def edge_trace():
+    """Sorted input; acceptance is hand-selected, never inferred from the engine."""
+    return [
+        event("shared", 0, 2, merchant_id="m1"),
+        event("shared", 0, 50, entity="b"),
+        event("peer", 0, 3, merchant_id="m2"),
+        event("idle", 0, 500, entity="c"),
+        event("shared", 0, 999),  # Duplicate with conflicting payload.
+        event("minute", 60, 5, merchant_id="m1"),
+        event("five-minutes", 300, 7),
+        event("hour", 3600, 11, merchant_id="m3"),
+        event("equal-hour", 3600, 13, merchant_id="m4"),
+        event("gap", 3601, 17, entity="b"),
+        event("shared", 86400, 999),  # Exact inclusive deduplication cutoff.
+        event("shared", 86401, 19),  # Outside retention; engine accepts ID reuse.
+        event("following", 86402, 23),
+    ]
+
+
+@pytest.mark.parametrize("partitions", [(0, 0, 0), (0, 1, 0), (0, 1, 2)])
+@pytest.mark.parametrize("cut", range(14))
+def test_edge_trace_partitioned_parity_and_checkpoint_cuts(partitions, cut):
+    """In-process partition/checkpoint simulation, not a Kafka recovery trial."""
+    events = edge_trace()
+    accepted = [row for i, row in enumerate(events) if i not in (4, 10)]
+    expected = reference(accepted)
+    batch = list(batch_rows(events))
+    assert [(row["entity_id"], row["transaction_id"], row["timestamp"]) for row in batch] == [
+        (row.entity_id, row.transaction_id, row.timestamp) for row in accepted
+    ]
+    # Batch and stream share implementation; the independent oracle is essential.
+    for snapshot, values in zip(batch, expected, strict=True):
+        assert snapshot["features"] == pytest.approx(values)
+
+    assignment = dict(zip(("a", "b", "c"), partitions, strict=True))
+    engines = {partition: FeatureEngine() for partition in set(partitions)}
+    live = []
+    for i in range(len(events) + 1):
+        if i == cut:
+            for partition, engine in engines.items():
+                engine.expire()
+                engines[partition] = FeatureEngine(
+                    json.loads(json.dumps(engine.state)), engine.watermark
+                )
+        if i == len(events):
+            break
+        engine = engines[assignment[events[i].entity_id]]
+        status, snapshot = engine.process(events[i])
+        assert status == ("duplicate" if i in (4, 10) else "accepted")
+        if snapshot is not None:
+            live.append(snapshot)
+        if (i + 1) % 3 == 0:  # Expire at simulated worker batch boundaries.
+            for active in engines.values():
+                active.expire()
+    assert live == batch
+
+
+def test_batch_rejects_cross_entity_timestamp_regression():
+    events = [event("first", 100, entity="a"), event("second", 99, entity="b")]
+    engine = FeatureEngine()
+    assert [engine.process(row)[0] for row in events] == ["accepted", "accepted"]
+    with pytest.raises(ValueError, match="globally sorted by timestamp"):
+        list(batch_rows(events))
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
