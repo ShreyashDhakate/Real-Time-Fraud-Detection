@@ -2,6 +2,17 @@
 
 Validation date: 2026-09-12. Environment: Windows, Python 3.12.8.
 
+## Model experiment protocol, 2026-09-15
+
+The [validation-only experiment protocol](../docs/MODEL_EXPERIMENT.md) freezes
+one training-derived class-weight candidate, chronological partitions, feature
+availability, leakage checks, and an average-precision selection rule before
+training changes. A fresh read-only dataset audit matches the historical hash
+and split counts. The previous test period has already been inspected; the
+supplied competition test CSV has no labels. No new model-quality result is
+claimed. Adapter leakage coverage is separate from the validation-only training
+path, which remains to be implemented.
+
 ## Event-time checks, 2026-09-13
 
 Fresh local verification passed **196 tests** in 7.01 seconds, Ruff, the
