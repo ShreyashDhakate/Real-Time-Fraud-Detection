@@ -2,6 +2,18 @@
 
 Validation date: 2026-09-12. Environment: Windows, Python 3.12.8.
 
+## Scoring failure probes, 2026-09-16
+
+The [scoring failure contract](../docs/SCORING_FAILURES.md) reviews existing
+coverage and records real localhost gRPC probes with injected stores. Freshness
+boundaries, Redis connection/timeout error mapping, and skipped inference after
+a deadline expires during a store read pass. An incompatible snapshot schema
+is currently scored successfully: a strict expected-failure test preserves this
+open defect, and running it with `--runxfail` reproduces the failed rejection.
+This is demo-model transport evidence, not live Redis or trained full-stack
+verification. The document specifies the correction and integration acceptance
+checks without claiming those remaining gates passed.
+
 ## Model experiment protocol, 2026-09-15
 
 The [validation-only experiment protocol](../docs/MODEL_EXPERIMENT.md) freezes
