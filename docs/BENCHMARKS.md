@@ -1,5 +1,9 @@
 # Benchmark guide
 
+For a fixed workload, resource budget, run matrix and accounting prerequisites,
+follow the [scoring and Redis measurement protocol](PERFORMANCE_TEST_PLAN.md).
+Its sustained runs require instrumentation beyond the current smoke scripts.
+
 All commands below assume the project's virtual environment is active and the local Docker stack is healthy. In PowerShell it can be activated with `.\.venv\Scripts\Activate.ps1`, or invoke executables through `.venv\Scripts` as shown in the README.
 
 ## Correctness first

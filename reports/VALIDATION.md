@@ -2,6 +2,25 @@
 
 Validation date: 2026-09-12. Environment: Windows, Python 3.12.8.
 
+## Performance protocol, 2026-09-17
+
+The [scoring and Redis load matrix](../docs/PERFORMANCE_TEST_PLAN.md) fixes corpus,
+topology, resource budgets, warm-up, duration, concurrency, error accounting and
+paired comparison rules before measurement. Deterministic probes of the Redis
+benchmark verify its 99% hit gate and expose remainder-read truncation and loss
+of partial reports on connection errors. These use injected GET responses and
+provide no Redis latency or throughput evidence. Docker/k6 were not found on
+PATH and host hardware queries were denied; no new load run is claimed.
+
+Fresh checks using the existing Python environment with worktree imports:
+`pytest -q` passed 209 tests with three strict expected failures (two benchmark
+accounting gaps and the existing scoring-schema defect). The five focused
+benchmark probes produced three passes and two expected failures; `--runxfail`
+reproduced both accounting failures. Ruff, protobuf drift check and `pip check`
+passed. A temporary 10,000-row seed-42 generator check produced 1,000 distinct
+entities, 10,000 unique IDs and approximately 99.99 seconds of event time;
+it was not replayed or used for a load measurement.
+
 ## Scoring failure probes, 2026-09-16
 
 The [scoring failure contract](../docs/SCORING_FAILURES.md) reviews existing
