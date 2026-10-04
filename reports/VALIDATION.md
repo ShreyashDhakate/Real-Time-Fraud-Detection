@@ -2,6 +2,48 @@
 
 Validation date: 2026-09-12. Environment: Windows, Python 3.12.8.
 
+## Performance protocol, 2026-09-17
+
+The [scoring and Redis load matrix](../docs/PERFORMANCE_TEST_PLAN.md) fixes corpus,
+topology, resource budgets, warm-up, duration, concurrency, error accounting and
+paired comparison rules before measurement. Deterministic probes of the Redis
+benchmark verify its 99% hit gate and expose remainder-read truncation and loss
+of partial reports on connection errors. These use injected GET responses and
+provide no Redis latency or throughput evidence. Docker/k6 were not found on
+PATH and host hardware queries were denied; no new load run is claimed.
+
+Fresh checks using the existing Python environment with worktree imports:
+`pytest -q` passed 209 tests with three strict expected failures (two benchmark
+accounting gaps and the existing scoring-schema defect). The five focused
+benchmark probes produced three passes and two expected failures; `--runxfail`
+reproduced both accounting failures. Ruff, protobuf drift check and `pip check`
+passed. A temporary 10,000-row seed-42 generator check produced 1,000 distinct
+entities, 10,000 unique IDs and approximately 99.99 seconds of event time;
+it was not replayed or used for a load measurement.
+
+## Scoring failure probes, 2026-09-16
+
+The [scoring failure contract](../docs/SCORING_FAILURES.md) reviews existing
+coverage and records real localhost gRPC probes with injected stores. Freshness
+boundaries, Redis connection/timeout error mapping, and skipped inference after
+a deadline expires during a store read pass. An incompatible snapshot schema
+is currently scored successfully: a strict expected-failure test preserves this
+open defect, and running it with `--runxfail` reproduces the failed rejection.
+This is demo-model transport evidence, not live Redis or trained full-stack
+verification. The document specifies the correction and integration acceptance
+checks without claiming those remaining gates passed.
+
+## Model experiment protocol, 2026-09-15
+
+The [validation-only experiment protocol](../docs/MODEL_EXPERIMENT.md) freezes
+one training-derived class-weight candidate, chronological partitions, feature
+availability, leakage checks, and an average-precision selection rule before
+training changes. A fresh read-only dataset audit matches the historical hash
+and split counts. The previous test period has already been inspected; the
+supplied competition test CSV has no labels. No new model-quality result is
+claimed. Adapter leakage coverage is separate from the validation-only training
+path, which remains to be implemented.
+
 ## Event-time checks, 2026-09-13
 
 Fresh local verification passed **196 tests** in 7.01 seconds, Ruff, the
