@@ -1,156 +1,244 @@
 # Real-Time Fraud Detection & Risk Scoring Pipeline
 
-I built this project to explore the two hard parts of real-time fraud detection together: keeping behavioral features correct when workers fail, and serving a model fast enough to score a transaction while it is still relevant.
+A Python service that processes transaction events, maintains historical behavior features and serves versioned risk scores over gRPC. Kafka stores the durable processing state; Redis provides transaction-specific feature snapshots for inference.
 
-I chose **Python, Kafka, Redis, XGBoost, and gRPC**, with Docker Compose for local development and Terraform for an AWS EC2 deployment. The implementation includes the pipeline, training and serving code, correctness tests, and benchmark tools. The large-scale performance targets below still need to be measured on a running stack.
+The project focuses on **recoverable stream processing, consistent feature computation and model serving**. It includes a local Docker stack, an XGBoost training workflow, correctness tests, monitoring and reproducible benchmark tools.
 
-## Why I designed it this way
+[Source repository](https://github.com/ShreyashDhakate/Real-Time-Fraud-Detection)
 
-- **Kafka owns durable processing state.** I commit input offsets, feature outputs, and entity checkpoints in the same Kafka transaction. A restarted worker restores committed state before consuming again.
-- **Redis is a serving projection.** I can rebuild it from Kafka. Its writes are idempotent, and conflicting versions of the same transaction snapshot fail explicitly.
-- **Each score uses one exact transaction snapshot.** I look up features by entity ID and transaction ID so a request cannot accidentally use behavior from later transactions.
-- **Batch and streaming share feature definitions.** I compute historical features using the same window boundaries as the online worker, then compare them against an independent reference in tests.
-- **I started with fixed partition ownership.** Each worker owns one Kafka partition and has a stable transactional ID. This keeps recovery inspectable; dynamic partition reassignment is a future extension.
-- **I keep the demo model explicit.** Local Compose defaults to a labeled heuristic so the full flow can be exercised before downloading training data. A trained XGBoost model replaces it when its artifact is available.
+## Features
+
+- **12 behavioral features** computed from event-time windows, including transaction frequency, spend and geographic movement when coordinates are available.
+- **Kafka transaction checkpoints** that commit feature outputs, processing state and input offsets together.
+- **Idempotent Redis materialization** using Lua scripts to detect conflicting transaction snapshots.
+- **gRPC scoring** with input validation, request deadlines, freshness checks and explicit model/feature versions.
+- **Shared batch and streaming definitions**, checked against independent reference calculations.
+- **Chronological model evaluation** with XGBoost and a logistic regression baseline.
+- **Docker Compose**, Prometheus/Grafana configuration and GitHub Actions checks.
+
+## Architecture
 
 ```mermaid
-flowchart LR
-    A[Transaction producer] --> B[Kafka transactions]
-    B --> C[Python feature workers]
-    C --> D[Kafka feature snapshots]
-    C --> E[Kafka checkpoints]
-    D --> F[Redis materializer]
-    F --> G[Redis transaction features]
-    H[gRPC request] --> I[Scoring service]
-    G --> I
-    J[XGBoost artifact] --> I
-    K[IEEE-CIS transactions] --> L[Historical features and training]
-    L --> J
+flowchart TD
+    P[Transaction producer] --> T[Kafka input topic]
+    T --> W[Partition feature worker]
+    W --> F[Kafka feature snapshots]
+    W --> C[Kafka state checkpoints]
+    C --> W
+    F --> M[Redis materializer]
+    M --> R[Redis transaction snapshots]
+    R --> S[gRPC scoring service]
+    A[XGBoost model artifact] --> S
+    Q[Scoring client] --> S
 ```
 
-## Features I compute
+Each worker owns one explicitly assigned partition. It restores committed state before processing new events. The Redis materializer consumes committed feature snapshots and writes immutable snapshots keyed by entity and transaction ID.
 
-I use event-time windows that include the lower boundary and exclude the current timestamp: `[t - window, t)`. Transactions at the same timestamp do not contribute to each other's features. History is scoped to an entity and retained for one hour for feature computation.
-
-| Features | Window or reference |
+| Component | Responsibility |
 | --- | --- |
-| Transaction count, total spend | 1 minute, 5 minutes, 1 hour: six features |
-| Mean amount | 5 minutes |
-| Maximum amount | 1 hour |
-| Distinct merchants | 1 hour |
-| Seconds since previous transaction | Previous event in retained history |
-| Geographic distance, implied travel speed | Previous event in retained history, when both locations exist |
+| `domain.py` | Transaction validation, feature windows, deduplication and state expiration |
+| `streaming.py` | Partition ownership, Kafka transactions and checkpoint recovery |
+| `store.py` | Redis snapshot storage and materialization |
+| `model.py` | Training, model artifacts and inference |
+| `serving.py` | gRPC transport, scoring checks and request metrics |
+| `cli.py` | Demo, generation, replay, training, backfill and scoring commands |
 
-That gives me 12 behavioral features. The model also receives the current transaction amount. Missing history and coordinates remain missing values.
+### Consistency contract
 
-For the first version, I reject events older than their entity's last accepted timestamp and events more than one hour behind the partition watermark. Rejected events go to a Kafka topic; I do not silently revise earlier scores. I deduplicate transaction IDs within an entity for a 24-hour event-time horizon.
+Kafka offsets, output records and entity checkpoints are committed in the same Kafka transaction. Redis is a separately materialized projection: writes can be retried without silently replacing a conflicting snapshot. Kafka and Redis are **not** committed as one cross-system transaction.
 
-## Run the local demo
+Partition ownership is static in this implementation. Starting another worker for the same partition requires the same stable transactional identity and recovery rules; automatic consumer-group rebalancing is not implemented.
 
-I use Python 3.12 for development. On Windows PowerShell, run these commands from the repository root:
+## Feature definitions
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -c constraints.txt -e '.[dev]'
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\fraud.exe demo
+Windows use `[t - window, t)`. The lower boundary is included; the current timestamp is excluded. Events at the same timestamp do not contribute to each other's history.
+
+| Feature group | Definition | Count |
+| --- | --- | ---: |
+| Transaction count | 1-minute, 5-minute and 1-hour windows | 3 |
+| Total spend | 1-minute, 5-minute and 1-hour windows | 3 |
+| Mean transaction amount | 5-minute window | 1 |
+| Maximum transaction amount | 1-hour window | 1 |
+| Distinct merchants | 1-hour window | 1 |
+| Time since previous transaction | Previous event in retained history | 1 |
+| Distance and implied travel speed | Previous event, when both locations are present | 2 |
+
+The model also receives the current transaction amount. Missing history and coordinates remain missing values.
+
+Transaction IDs are deduplicated per entity within a 24-hour event-time horizon. Events older than the entity's last accepted timestamp, or more than one hour behind the partition watermark, are rejected rather than used to revise an earlier score.
+
+## Getting started
+
+### Requirements
+
+- Python **3.12 or later**, as declared in `pyproject.toml`.
+- Git.
+- Docker with the Compose plugin for the full Kafka/Redis stack.
+- The labeled IEEE-CIS transaction CSV for real-data training; it is not needed for the in-process demo.
+
+### 1. Install the project
+
+```bash
+git clone https://github.com/ShreyashDhakate/Real-Time-Fraud-Detection.git
+cd Real-Time-Fraud-Detection
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -c constraints.txt -e '.[dev]'
 ```
 
-The in-process demo works without Docker and clearly labels its score as an untrained heuristic. It writes `reports/local-demo.json`.
+On Windows PowerShell, use `python -m venv .venv` and activate with `.\.venv\Scripts\Activate.ps1`, then run the same installation command.
 
-For the full Kafka -> Redis -> gRPC flow, install and start Docker Desktop with Linux containers, then run:
+### 2. Run without external services
 
-```powershell
-Copy-Item .env.example .env
-.\.venv\Scripts\fraud.exe generate --count 1000
+```bash
+python -m pytest -q
+fraud demo
+```
 
+The demo processes synthetic events in memory and writes `reports/local-demo.json`. Its score is explicitly labeled as an **untrained heuristic**. It does not exercise Kafka or Redis.
+
+### 3. Start the complete local pipeline
+
+```bash
+cp .env.example .env
+fraud generate --count 1000
 docker compose up --build -d
-.\.venv\Scripts\python.exe scripts/smoke.py
-
+python scripts/smoke.py
 docker compose run --rm producer
 ```
 
-The smoke test produces its own events, waits for Redis materialization, verifies offline/online parity, and makes a gRPC scoring request. The producer command replays `data/transactions.jsonl` for further inspection and load tests.
+In PowerShell, replace `cp .env.example .env` with `Copy-Item .env.example .env`.
 
-To score one of those transactions after the producer finishes:
+The smoke script produces 20 synthetic events, waits for Redis snapshots, compares streaming features with batch features and requests a gRPC score. The producer command subsequently replays the generated transaction file.
 
-```powershell
-$transaction = Get-Content data/transactions.jsonl -First 1 | ConvertFrom-Json
-.\.venv\Scripts\fraud.exe score --entity $transaction.entity_id --transaction $transaction.transaction_id
+Generate fresh events for a new demo session: scoring rejects snapshots older than its configured maximum age.
+
+### 4. Request a score
+
+Read an entity/transaction pair from the generated file, then call:
+
+```bash
+fraud score --entity ENTITY_ID --transaction TRANSACTION_ID
 ```
 
-If a snapshot has not reached Redis yet, the API returns `NOT_FOUND`; retry after checking consumer progress. Snapshots older than 24 hours are rejected by the scoring service. Generate a fresh input file for a new demo day.
+Replace the two arguments with an actual pair from `data/transactions.jsonl`. The command connects to `localhost:50051` by default. A score can return `NOT_FOUND` while its snapshot is still being materialized.
 
-```powershell
+### 5. Inspect or stop the stack
+
+```bash
 docker compose logs --tail 100 worker-0 materializer scorer
 docker compose --profile monitoring up -d
-# Grafana: http://localhost:3001 on my workstation (default port: 3000)
-# Prometheus: http://localhost:9090
 docker compose down
 ```
 
-`docker compose down` retains data volumes. See the runbook before resetting durable state.
+`docker compose down` retains the Kafka and Redis data volumes. Follow the [runbook](docs/RUNBOOK.md) before resetting durable processing state.
 
-My local `.env` uses the trained model (`ALLOW_DEMO_MODEL=0`), Grafana port 3001, and scorer metrics port 8001 because ports 3000 and 8000 are already occupied. These ports are configurable through `GRAFANA_PORT` and `SCORER_METRICS_PORT`.
+## Configuration
 
-I can run a short trained-model load check without a separate k6 installation:
+Docker Compose reads `.env`. The Python CLI reads **exported environment variables**, not `.env` automatically.
 
-```powershell
-docker compose --profile benchmarks run --rm k6
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:19092` for the host CLI | Broker connection |
+| `REDIS_URL` | `redis://localhost:6379/0` for the host CLI | Feature store connection |
+| `PIPELINE_NAMESPACE` | `fraud` | Topic, group and key namespace |
+| `KAFKA_PARTITIONS` | `4` | Partition count |
+| `WORKER_PARTITION` | `0` | Explicit worker partition |
+| `BATCH_SIZE` | `100` | Worker batch size |
+| `FEATURE_TTL_SECONDS` | `86400` | Redis snapshot retention |
+| `ALLOW_DEMO_MODEL` | `1` in Compose | Permit the labeled heuristic model |
+| `GRAFANA_PORT` | `3000` | Host port for the monitoring UI |
+| `SCORER_METRICS_PORT` | `8000` | Host port for scorer metrics |
+
+Compose uses internal service addresses for container-to-container communication. The local gRPC endpoint is `localhost:50051`; Prometheus is `localhost:9090` when the monitoring profile is enabled.
+
+## Model training
+
+```bash
+fraud train --input /path/to/train_transaction.csv --output artifacts/model
 ```
 
-## Train the model
+Training uses chronological train/validation/test periods. It writes a model artifact and metadata containing evaluation metrics, feature order and checksums. Set `ALLOW_DEMO_MODEL=0` in `.env` after training, then recreate the scorer:
 
-I use the labeled IEEE-CIS transaction file, split chronologically into training, validation, and held-out test periods. The training command fits XGBoost and a logistic regression baseline, then saves evaluation metrics, model parameters, feature order, and data/model checksums.
-
-```powershell
-.\.venv\Scripts\fraud.exe train --input ../ieee-fraud-detection/train_transaction.csv --output artifacts/model
-```
-
-I use anonymized card/address fields as an **entity proxy**, not a verified account identity. IEEE-CIS does not provide the explicit coordinates needed for my geographic features, so I validate those using synthetic coordinates. This adapter uses the transaction table only; it does not currently incorporate the identity table or the full anonymized feature set. Its AUC must be measured rather than inferred from other IEEE-CIS models.
-
-After training, change `ALLOW_DEMO_MODEL=0` in `.env` and recreate the scoring container:
-
-```powershell
+```bash
 docker compose up -d --force-recreate scorer
 ```
 
-The API returns an uncalibrated **risk score**, its model version, and its feature version. I do not present it as a calibrated fraud probability.
+The IEEE-CIS adapter uses anonymized card/address fields as entity proxies. It does not use the identity table or the complete anonymized feature set. Coordinates are unavailable in this dataset, so geographic feature behavior is checked with synthetic data.
 
-## Targets I want to validate
+The API exposes an **uncalibrated risk score**, not a calibrated fraud probability.
 
-| Experiment | Target | Current status |
+## gRPC contract
+
+The service definition is [`contracts/fraud.proto`](contracts/fraud.proto).
+
+| RPC | Request | Response |
 | --- | --- | --- |
-| Kafka feature processing | 50k+ committed transactions/sec without growing lag | Unmeasured |
-| Worker crash recovery | 100+ process-kill trials with no missing or double-counted events | 65 trials passed; campaign stopped on Kafka connectivity failure at trial 66; rerun after stack stability |
-| Held-out IEEE-CIS ROC-AUC | Above 0.90 | Initial behavioral baseline: **0.6723** on 88,081 held-out rows; target not met |
-| gRPC scoring | p99 <100 ms at 5k+ successful requests/sec | Short 100-RPS smoke check passed at p99 **3.97 ms**; 5k RPS remains unverified |
-| Redis reads | Client-observed p99 <1 ms | Initial Windows-to-Docker test: p99 **7.46 ms** at concurrency 16; target not met |
+| `fraud.v1.FraudScorer/Score` | `entity_id`, `transaction_id` | `risk_score`, `model_version`, `feature_version`, `feature_age_seconds`, `demo_model` |
 
-I started with full touched-entity checkpoints and straightforward window scans to make the implementation easy to audit. Hot accounts, checkpoint size, and Redis write throughput will need profiling before I can claim the throughput target. This is a single-broker development topology, not a high-availability production deployment.
+Explicit errors cover invalid input, unavailable stores, missing snapshots, stale/future timestamps and expired request deadlines. An incompatible snapshot-schema rejection remains a documented validation gap; see [scoring failure checks](docs/SCORING_FAILURES.md).
 
-## Project map
+## Tests and validation
 
-```text
-src/fraud_pipeline/     Feature engine, Kafka workers, Redis store, training, gRPC, CLI
-contracts/             Protobuf service definition
-scripts/               Smoke test, protobuf generation, real worker crash trials
-benchmarks/            k6 scoring workload and concurrent Redis read benchmark
-tests/                 Reference, checkpoint, model, and real local gRPC tests
-infra/                 Monitoring configuration and EC2 Terraform
-reports/               Local validation notes and generated evidence
+```bash
+python -m pytest -q
+python -m ruff check src tests scripts benchmarks --exclude src/fraud_pipeline/generated
+python scripts/generate_proto.py --check
+python -m pip check
 ```
 
-I documented the remaining setup and operational decisions here:
+Coverage includes feature boundaries, duplicate/late input, batch/stream parity, checkpoint restoration, model artifact behavior and localhost gRPC contracts. Some known gaps are tracked with strict expected-failure tests; a passing test run should be read together with those results.
 
-- [External setup checklist](docs/EXTERNAL_SETUP.md): Docker, Kaggle data, optional AWS setup.
-- [Architecture and consistency contract](docs/ARCHITECTURE.md): ordering, checkpoint recovery, retention, and limitations.
-- [Benchmark guide](docs/BENCHMARKS.md): commands and evidence needed for each target.
-- [Operations runbook](docs/RUNBOOK.md): backfill, recovery, model rollout, deployment, and teardown.
-- [Local validation](reports/VALIDATION.md): what has actually been checked in this workspace.
-- [Reproduce the checks](docs/REPRODUCIBILITY.md): interpreter selection, read-only protobuf verification, and separate external validation gates.
-- [IEEE-CIS baseline](reports/IEEE_BASELINE.md): my first real-data training result and its limitations.
+The external recovery harness runs actual worker subprocess crashes:
+
+```bash
+python -m scripts.crash_trials --trials 2 --output reports/crash-trials.json
+```
+
+Use an isolated local stack. Checkpoint simulations and worker process-kill trials are different validation exercises.
+
+## Recorded results
+
+The figures below come from the repository's recorded local validation. They are not new measurements or production capacity guarantees.
+
+| Experiment | Recorded result | Scope |
+| --- | --- | --- |
+| Trained-model gRPC smoke test | **3,001 successful scores**, approximately **100 RPS**, **p99 3.97 ms**, no errors or dropped iterations | 30-second local run; pre-materialized features |
+| Redis reads | **p99 7.46 ms**, 100% hit rate | 10,000 GETs, concurrency 16, Windows host to Docker |
+| IEEE-CIS model baseline | **ROC-AUC 0.6723** | 88,081 held-out rows; chronological split |
+| Worker crash campaign | **65 passing trials** | Campaign stopped at trial 66 on Kafka connectivity failure |
+
+Raw scoring and Redis reports are in [`reports/evidence/`](reports/evidence/). Model results and context are in [`reports/IEEE_BASELINE.md`](reports/IEEE_BASELINE.md) and [`reports/VALIDATION.md`](reports/VALIDATION.md).
+
+The gRPC latency measures serving from already materialized features; it does **not** measure ingestion-to-decision latency. Sustained 50k-event/sec processing, 5k scoring RPS and sub-millisecond Redis reads remain targets, not established results.
+
+### Reproduce performance checks
+
+After training and preparing fresh transaction snapshots:
+
+```bash
+docker compose --profile benchmarks run --rm k6
+python benchmarks/redis_reads.py --reads 10000 --concurrency 16 --output reports/redis.json
+```
+
+The Compose k6 service requires a trained model. See the [benchmark guide](docs/BENCHMARKS.md) and [performance protocol](docs/PERFORMANCE_TEST_PLAN.md) for warm-up, workload, duration, success accounting and hardware reporting requirements.
+
+## Current scope and next steps
+
+- Single-broker local topology; high availability has not been demonstrated.
+- Static partition ownership; dynamic reassignment remains future work.
+- Full touched-entity checkpoints and straightforward history scans need profiling for hot entities.
+- Remaining scoring-schema and benchmark-accounting gaps are documented in tests and validation notes.
+- Terraform files describe an optional EC2 deployment path; AWS deployment is not part of the recorded validation.
+
+## Documentation
+
+- [Architecture and consistency](docs/ARCHITECTURE.md)
+- [Reproduction guide](docs/REPRODUCIBILITY.md)
+- [Operations runbook](docs/RUNBOOK.md)
+- [External setup](docs/EXTERNAL_SETUP.md)
+- [Model experiment protocol](docs/MODEL_EXPERIMENT.md)
 
 ## License
 
-See [LICENSE](LICENSE).
+[MIT](LICENSE). Copyright 2026 Shreyash Dhakate.
